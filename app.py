@@ -1,13 +1,14 @@
-"""Recipe Box API — BE104 course skeleton.
+"""Recipe Box API - BE104 course skeleton.
 
-A working Flask + SQLite CRUD API for recipes. It stores data perfectly —
-and it trusts everyone. There is no authentication and no authorization yet.
-That is the point: you will add both, lesson by lesson, in Units 2 and 3.
+A working Flask + SQLite CRUD API for recipes. It stores data
+and it trusts everyone. There is no authentication and no auth
+That is the point: you will add both, lesson by lesson, in Uni
 """
 
 import sqlite3
 
 from flask import Flask, g, jsonify, request
+from security import hash_password
 
 DATABASE = "recipes.db"
 
@@ -68,8 +69,8 @@ def create_recipe():
     db = get_db()
     try:
         cur = db.execute(
-            "INSERT INTO recipes (title, ingredients, instructions, is_public)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO recipes (title, ingredients, instructions, is_public) "
+            "VALUES (?, ?, ?, ?)",
             (
                 data["title"],
                 data["ingredients"],
@@ -105,7 +106,8 @@ def update_recipe(recipe_id):
     db = get_db()
     try:
         cur = db.execute(
-            f"UPDATE recipes SET {', '.join(fields)} WHERE id = ?", values
+            f"UPDATE recipes SET {', '.join(fields)} WHERE id = ?",
+            values,
         )
         db.commit()
     except sqlite3.IntegrityError:
@@ -126,6 +128,39 @@ def delete_recipe(recipe_id):
     if cur.rowcount == 0:
         return jsonify({"error": "recipe not found"}), 404
     return "", 204
+
+
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True) or {}
+
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not username or not email or not password:
+        return jsonify({"error": "username, email, and password are required"}), 400
+
+    db = get_db()
+    password_hash = hash_password(password)
+
+    try:
+        cursor = db.execute(
+            "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+            (username, email, password_hash),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "username or email already in use"}), 409
+
+    new_user_id = cursor.lastrowid
+
+    return jsonify({
+        "id": new_user_id,
+        "username": username,
+        "email": email,
+    }), 201
+
 
 
 if __name__ == "__main__":
