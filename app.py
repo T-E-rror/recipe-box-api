@@ -8,7 +8,7 @@ That is the point: you will add both, lesson by lesson, in Uni
 import sqlite3
 
 from flask import Flask, g, jsonify, request
-from security import hash_password
+from security import hash_password, verify_password
 
 DATABASE = "recipes.db"
 
@@ -161,6 +161,38 @@ def register():
         "email": email,
     }), 201
 
+
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"error": "username and password are required"}), 400
+
+    db = get_db()
+    cursor = db.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username,),
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    user_id, user_username, password_hash = row
+
+    if not verify_password(password_hash, password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    return jsonify({
+        "user": {
+            "id": user_id,
+            "username": user_username,
+        }
+    }), 200
 
 
 if __name__ == "__main__":
