@@ -1,3 +1,4 @@
+from functools import wraps
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,30 @@ def close_db(exception):
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def require_auth(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Authorization header missing or malformed"}), 401
+
+        token = auth_header.split(" ", 1)[1]
+
+        try:
+            decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        except ExpiredSignatureError:
+            return jsonify({"error": "Token has expired. Please log in again."}), 401
+        except InvalidTokenError:
+            return jsonify({"error": "Invalid token."}), 401
+
+        g.user_id = decoded["sub"]
+        g.role = decoded.get("role", "user")
+
+        return f(*args, **kwargs)
+
+    return wrapper
 
 
 def recipe_to_dict(row):
@@ -118,29 +143,15 @@ def create_recipe():
 
 
 @app.patch("/recipes/<int:recipe_id>")
+@require_auth
 def update_recipe(recipe_id):
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Authorization header missing or malformed"}), 401
-
-    token = auth_header.split(" ", 1)[1]
-
-    try:
-        decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        user_id = decoded["sub"]
-        role = decoded.get("role", "user")
-    except ExpiredSignatureError:
-        return jsonify({"error": "Token has expired. Please log in again."}), 401
-    except InvalidTokenError:
-        return jsonify({"error": "Invalid token."}), 401
-
     db = get_db()
     row = db.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,)).fetchone()
     if row is None:
         return jsonify({"error": "recipe not found"}), 404
 
-    is_owner = str(row["owner"]) == str(user_id)
-    is_admin = role == "admin"
+    is_owner = str(row["owner"]) == str(g.user_id)
+    is_admin = g.role == "admin"
 
     if not (is_owner or is_admin):
         return jsonify({"error": "You do not have permission to edit this recipe"}), 403
